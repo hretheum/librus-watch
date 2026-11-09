@@ -1,0 +1,28 @@
+# Przykład prywatnej listy zakazanych wyrażeń (opcjonalnej).
+#
+# Skopiuj do `local/forbidden-terms.txt` (katalog `local/` jest w .gitignore):
+#
+#     cp scripts/forbidden-terms.example.txt local/forbidden-terms.txt
+#
+# Hook `pre-commit` odrzuci wtedy commit, w którym któreś z wyrażeń występuje
+# w śledzonym pliku (bez rozróżniania wielkości liter, dopasowanie dosłowne, nie regex).
+# Skrypt nie wypisuje samych wyrażeń, tylko ścieżki plików z trafieniem.
+#
+# Zasady:
+# - jedno wyrażenie na linię; puste linie i linie z `#` na początku są pomijane;
+# - wyrażenia dodawaj WYŁĄCZNIE do kopii w `local/`, nigdy do tego pliku
+#   (to jest plik w repo, a lista prawdziwych nazwisk zdradza to, co ma chronić);
+# - brak pliku `local/forbidden-terms.txt` jest normalny: hook sprawdza wtedy
+#   tylko prywatne pliki i sekrety (gitleaks).
+#
+# Co warto wpisać (kategorie, wymyślone przykłady w komentarzach):
+#
+# imiona i nazwiska dzieci i nauczycieli:
+#   Jan Kowalski
+# nazwa szkoły i klasy:
+#   Szkoła Podstawowa nr 99
+# własne domeny, adresy e-mail, nazwy serwerów:
+#   moja-domena.example
+#   rodzic@poczta.example
+# numery telefonów i identyfikatory kont:
+#   +48 600 000 000

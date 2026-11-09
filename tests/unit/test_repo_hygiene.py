@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -60,3 +61,43 @@ def test_example_files_are_not_ignored() -> None:
         ["git", "check-ignore", "--no-index", *examples], cwd=ROOT, capture_output=True, text=True
     )
     assert res.stdout == ""
+
+
+def _track(repo: Path, name: str, text: str) -> None:
+    (repo / name).write_text(text)
+    _git(repo, "add", "-f", name)
+
+
+def test_main_reports_paths_without_the_term(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _git(tmp_path, "init", "-q")
+    _track(tmp_path, "a.txt", "Jan Kowalski")
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "forbidden-terms.txt").write_text("Jan Kowalski\n")
+    monkeypatch.chdir(tmp_path)
+    assert check.main() == 1
+    err = capsys.readouterr().err
+    assert "a.txt" in err
+    assert "Jan Kowalski" not in err
+
+
+def test_main_passes_without_terms_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _git(tmp_path, "init", "-q")
+    _track(tmp_path, "a.txt", "nic")
+    monkeypatch.chdir(tmp_path)
+    assert check.main() == 0
+
+
+def test_copied_example_template_does_not_block_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Skopiowany szablon nie ma aktywnych wyrażeń, więc nie blokuje także samego siebie."""
+    example = ROOT / "scripts" / "forbidden-terms.example.txt"
+    _git(tmp_path, "init", "-q")
+    _track(tmp_path, "forbidden-terms.example.txt", example.read_text())
+    (tmp_path / "local").mkdir()
+    shutil.copy(example, tmp_path / "local" / "forbidden-terms.txt")
+    monkeypatch.chdir(tmp_path)
+    assert check.main() == 0
+    assert check.forbidden_term_hits(ROOT, example) == []

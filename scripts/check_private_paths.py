@@ -7,9 +7,10 @@ gdy którykolwiek śledzony plik jest jednocześnie ignorowany (np. `config.yaml
 
 Jeśli istnieje prywatny plik `local/forbidden-terms.txt` (jedno wyrażenie na
 linię), skrypt odrzuca też commit, w którym któreś z tych wyrażeń występuje
-w śledzonych plikach (bez rozróżniania wielkości liter).
+w śledzonych plikach (bez rozróżniania wielkości liter). Plik jest opcjonalny:
+bez niego sprawdzane są tylko prywatne pliki. Szablon: `scripts/forbidden-terms.example.txt`.
 
-Uruchamiany przez hook `pre-commit` i przez test `tests/test_repo_hygiene.py`.
+Uruchamiany przez hook `pre-commit` i przez test `tests/unit/test_repo_hygiene.py`.
 """
 
 from __future__ import annotations

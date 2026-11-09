@@ -19,6 +19,11 @@ uv run mypy
 
 Testy nie łączą się z Librusem ani z modelem: Librus jest podmieniany na poziomie transportu HTTP (`tests/fixtures/librus_http.py`), model na lokalnej atrapie. Testy na prawdziwych usługach (`-m llm`, `-m live`) uruchamia się ręcznie.
 
+## Co sprawdza hook i CI
+
+- **Hook `pre-commit`** (po `pre-commit install`) blokuje sekrety (gitleaks), pliki z `.gitignore` dodane do gita, duże pliki i błędy stylu (ruff). Sprawdza też prywatną listę zakazanych wyrażeń z `local/forbidden-terms.txt`, ale **ten plik jest opcjonalny i należy do właściciela repo**: bez niego ta jedna kontrola jest po prostu pomijana, a reszta działa normalnie. Własną listę możesz założyć z `scripts/forbidden-terms.example.txt` (np. nazwiska i nazwa szkoły, żeby nie trafiły do commita).
+- **CI** (GitHub Actions) uruchamia na każdym pull requeście `ruff check`, `ruff format --check`, `mypy` i `pytest`. Gałąź `main` jest chroniona: zmiany wchodzą tylko przez pull request z zielonym checkiem `check`. Przy pierwszym pull requeście z forka właściciel musi najpierw zatwierdzić uruchomienie workflow, więc jeśli CI nie ruszyło, to nie jest błąd po Twojej stronie.
+
 ## Wymagania dla każdej zmiany
 
 - **Testy na odpowiednim poziomie** w tym samym pull requeście: jednostkowe dla każdej funkcji i ścieżki błędu, integracyjne, gdy zmiana łączy moduły, end-to-end, gdy zmienia zachowanie polecenia.
