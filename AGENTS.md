@@ -55,5 +55,5 @@ pre-commit run --all-files
 ## Konwencje
 
 - Docstringi w stylu Google, po polsku, dla każdego modułu, klasy i funkcji (wymusza ruff `D`).
-- Commity tylko lokalne. Wysyłkę na GitHuba (push) robi właściciel repo sam; agent nie wykonuje `git push` i nie pyta o niego.
+- Gałąź `main` jest chroniona (ruleset: pull request i zielony check `check`). Agent commituje na osobnej gałęzi i wypycha ją oraz otwiera PR tylko wtedy, gdy właściciel o to poprosi. Nigdy nie wypycha na `main`, nie scala PR-ów ani nie zmienia ustawień repozytorium bez wyraźnej zgody; scala właściciel.
 - Decyzje: nowe ADR na końcu `docs/decisions.md`, starych nie zmieniamy.
