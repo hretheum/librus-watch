@@ -47,7 +47,7 @@ pre-commit run --all-files
 
 ## Repo jest publiczne
 
-- Prywatne pliki (`config.yaml`, `.env`, `secrets/`, `data/`, `deploy/local/`, `local/`) są w `.gitignore`; hook `pre-commit` blokuje ich commit oraz wyrażenia z `local/forbidden-terms.txt`.
+- Prywatne pliki (`config.yaml`, `.env`, `secrets/`, `data/`, `deploy/local/`, `local/`) są w `.gitignore`; hook `pre-commit` blokuje ich commit oraz wyrażenia z `local/forbidden-terms.txt` (prywatny, opcjonalny plik właściciela; jego brak jest normalny, szablon w `scripts/forbidden-terms.example.txt`).
 - Dokumenty w `docs/` są neutralne: bez nazw serwerów, imion, loginów i adresów. Szczegóły lokalne trafiają do `local/plan.md` (źródło prawdy planu).
 - Sekretów nie czytamy ani nie wypisujemy; skrypty dostają je przez `NAZWA_FILE`.
 - Dane z Librusa w logach i na ekranie: tylko liczby, nazwy pól i typy błędów (ADR-011).
