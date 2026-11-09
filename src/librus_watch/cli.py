@@ -421,6 +421,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "brief":
             return cmd_brief(args, cfg)
         if args.command == "run":
+            for child in cfg.children:  # brak sekretu to błąd konfiguracji, przed logowaniem
+                child_credentials(child)
             run_service(cfg)
             return EXIT_OK
         if args.command == "corpus":

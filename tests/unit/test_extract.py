@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from librus_watch.extract import (
     SYSTEM_PROMPT,
     BadAnswer,
     ModelUnavailable,
+    OpenAIChat,
     check_item,
     extract_one,
     parse_answer,
@@ -218,6 +220,73 @@ def test_unavailable_model_at_probe_stops_cycle(store: Store) -> None:
     report = read_queue(plan, store, LLMConfig(), NOW, FakeChat(ModelUnavailable("conn")))
     assert report.stopped.startswith("model niedostępny") and report.read == 0
     assert len(store.texts_to_extract(3)) == 1
+
+
+# --- klient API: kody HTTP ---------------------------------------------------------
+
+
+def http_model(monkeypatch: pytest.MonkeyPatch, status: int) -> list[str]:
+    """`OpenAIChat` z prawdziwą biblioteką `openai`; serwer podmieniony na transporcie HTTP."""
+    import httpx
+    import openai
+
+    paths: list[str] = []
+
+    def answer_with(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(status, json={"error": {"message": "zły klucz Jan Kowalski"}})
+
+    real = openai.OpenAI
+    client = httpx.Client(transport=httpx.MockTransport(answer_with))
+    monkeypatch.setattr(openai, "OpenAI", lambda **kw: real(http_client=client, **kw))
+    return paths
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (400, BadAnswer),  # sonda trybu JSON rozpoznaje po 400 nieobsługiwany tryb
+        (401, ModelUnavailable),
+        (403, ModelUnavailable),
+        (404, ModelUnavailable),
+        (503, ModelUnavailable),
+    ],
+)
+def test_http_errors_of_the_model_api(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    status: int,
+    expected: type[Exception],
+) -> None:
+    http_model(monkeypatch, status)
+    with pytest.raises(expected, match=f"HTTP {status}") as exc:
+        OpenAIChat(CFG, "zly-klucz").complete([{"role": "user", "content": "x"}], "json_schema", 5)
+    assert exc.value.__cause__ is None and exc.value.__suppress_context__
+    warnings = [r for r in caplog.records if r.name == "librus_watch.extract"]
+    access = status in (401, 403, 404)
+    assert [(r.levelno, r.getMessage()) for r in warnings] == (
+        [(logging.WARNING, f"model: HTTP {status}, sprawdź klucz API i nazwę modelu")]
+        if access
+        else []
+    )
+    assert "Jan Kowalski" not in caplog.text and "zly-klucz" not in caplog.text
+
+
+def test_access_error_keeps_texts_in_queue(monkeypatch: pytest.MonkeyPatch, store: Store) -> None:
+    paths = http_model(monkeypatch, 401)
+    report = read_queue(queued(store, TEXT), store, CFG, NOW, OpenAIChat(CFG, "zly-klucz"))
+    assert paths and report.read == 0 and report.failed == 0
+    assert [t.key for t in store.texts_to_extract(1)] == ["m1"]  # próba tekstu nie zużyta
+
+
+def test_probe_stores_no_json_mode_when_access_is_refused(
+    monkeypatch: pytest.MonkeyPatch, store: Store
+) -> None:
+    http_model(monkeypatch, 401)
+    auto = LLMConfig()  # json_mode: auto, czyli sonda
+    report = read_queue(queued(store, TEXT), store, auto, NOW, OpenAIChat(auto, "zly-klucz"))
+    assert report.stopped == "model niedostępny (HTTP 401)"
+    assert store.get_meta(f"llm_mode:{auto.base_url}:{auto.model}") is None  # bez `none` na dobę
 
 
 def test_schema_avoids_constructs_llama_cpp_cannot_parse() -> None:

@@ -3,6 +3,7 @@
 Złe hasło i błędy sieci są tylko na atrapie Librusa (nigdy na prawdziwych kontach).
 """
 
+import json
 import threading
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -44,6 +45,17 @@ def channels(monkeypatch: pytest.MonkeyPatch) -> Channels:
 def setup(config_file: Path) -> tuple[Config, Store]:
     cfg = load_config(config_file)
     return cfg, Store(cfg.data_dir)
+
+
+@pytest.fixture
+def two_children(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Konfiguracja z drugim dzieckiem, którego loginu i hasła nie podano."""
+    kuba = "    name: Ania\n  - id: kuba\n    name: Kuba\n"
+    config_file.write_text(config_file.read_text().replace("    name: Ania\n", kuba))
+    for name in ("LIBRUS_KUBA_LOGIN", "LIBRUS_KUBA_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(f"{name}_FILE", raising=False)
+    return config_file
 
 
 def test_run_once_twice_sends_nothing_twice(
@@ -101,6 +113,71 @@ def test_transient_errors_back_off_and_stop_for_the_day(
     store.close()
 
 
+def test_module_error_does_not_pause_the_child(
+    fake_librus: FakeLibrus, config_file: Path, channels: Channels
+) -> None:
+    fake_librus.overrides = {"Realizations": 500}  # tylko tematy lekcji zwracają 5xx
+    cfg, store = setup(config_file)
+    cycles = cfg.fetch.max_failures_per_day + 1
+    for hour in range(6, 6 + cycles):  # zwykły rytm co godzinę
+        report = scheduler.run_once(cfg, store, NOW.replace(hour=hour), send_instant=False)
+        assert [r.failed for r in report.reports] == [{"Realizations": "TransientError"}]
+    st = store.fetch_state("ania", NOW.date())
+    assert (st.failures, st.next_attempt, st.blocked_until) == (0, None, None)
+    errors = json.loads(store.get_meta(f"module_errors:{NOW.date()}") or "{}")
+    assert errors == {"Realizations": cycles}  # błąd modułu nadal trafia do liczników
+    store.close()
+
+
+def test_unexpected_error_of_one_child_does_not_stop_the_cycle(
+    fake_librus: FakeLibrus,
+    two_children: Path,
+    channels: Channels,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cfg, store = setup(two_children)
+    report = scheduler.run_once(cfg, store, NOW)
+    assert [r.child for r in report.reports] == ["ania"]
+    assert report.errors == {"kuba": "MissingSecretError"}
+    assert store.get_meta("last_cycle") == NOW.isoformat()  # restart usługi poczeka na rytm
+    st = store.fetch_state("kuba", NOW.date())
+    assert (st.failures, st.last_error) == (1, "MissingSecretError")
+    assert st.next_attempt is not None and st.next_attempt > NOW
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert errors == ["dziecko kuba: nieudany cykl (MissingSecretError)"]
+    store.close()
+
+
+def test_unexpected_error_after_login_pauses_the_child_and_logs_only_the_type(
+    fake_librus: FakeLibrus,
+    config_file: Path,
+    channels: Channels,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def broken(*_a: object, **_k: object) -> None:
+        raise KeyError("Jan Kowalski")  # komunikat wyjątku może nieść dane z Librusa
+
+    monkeypatch.setattr(scheduler, "sync_child", broken)
+    cfg, store = setup(config_file)
+    assert scheduler.run_once(cfg, store, NOW).errors == {"ania": "KeyError"}
+    later = scheduler.run_once(cfg, store, NOW + timedelta(minutes=10))
+    assert "przerwa po błędzie" in later.skipped["ania"] and fake_librus.calls["login"] == 1
+    assert "dziecko ania: nieudany cykl (KeyError)" in caplog.text
+    assert "Jan Kowalski" not in caplog.text
+    store.close()
+
+
+def test_missing_secret_of_any_child_stops_the_service_before_login(
+    two_children: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    started: list[Config] = []
+    monkeypatch.setattr(cli, "run_service", started.append)
+    assert cli.main(["--config", str(two_children), "run"]) == cli.EXIT_CONFIG
+    assert "brak sekretu LIBRUS_KUBA_LOGIN" in capsys.readouterr().err
+    assert started == []  # usługa nie startuje, więc nie loguje się żadne dziecko
+
+
 def test_briefs_at_their_time_once_a_day(
     fake_librus: FakeLibrus, config_file: Path, channels: Channels
 ) -> None:
@@ -144,6 +221,26 @@ def test_service_loop_runs_cycles_and_briefs_then_stops(
     assert store.get_meta("brief:evening:2026-11-06")
     assert fake_librus.calls["login"] <= 4  # 18:00, 19:00 (przed podsumowaniem), 20:00, 20:30
     store.close()
+
+
+def test_telegram_error_neither_stops_the_service_nor_repeats_the_brief(
+    fake_librus: FakeLibrus, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apprise = Channels()
+
+    def refused(method: str, payload: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError(f"Telegram {method}: 429")
+
+    monkeypatch.setattr(delivery, "channels", lambda cfg: (apprise, (refused, [111])))
+    base = load_config(config_file)
+    evening = base.alerts.evening.model_copy(update={"mode": "always"})
+    cfg = base.model_copy(update={"alerts": base.alerts.model_copy(update={"evening": evening})})
+    for minute in (5, 6):  # dwa starty usługi tego samego wieczoru
+        stop = threading.Event()
+        monkeypatch.setattr(stop, "wait", lambda _t=None, s=stop: s.set())  # jeden obrót pętli
+        at = datetime(2026, 11, 6, 19, minute)
+        scheduler.run_service(cfg, stop, lambda at=at: at, tick=0, start_telegram=False)
+    assert len([m for m in apprise.messages if m.startswith("Jutro")]) == 1
 
 
 def test_telegram_loop_survives_errors(

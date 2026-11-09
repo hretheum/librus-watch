@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -111,6 +112,8 @@ def test_login_registers_session_cookies_and_api_token() -> None:
         (MaintananceError("prace serwisowe"), TransientError),
         (requests.Timeout("read timed out"), TransientError),
         (requests.ConnectionError("dns"), TransientError),
+        (requests.exceptions.ChunkedEncodingError("Connection broken"), TransientError),
+        (requests.exceptions.ContentDecodingError("incorrect header check"), TransientError),
     ],
 )
 def test_login_errors_are_classified_without_details(
@@ -160,6 +163,8 @@ def test_get_json_returns_payload_and_uses_api_url() -> None:
         (FakeResponse(302), SchemaError),
         (FakeResponse(200, json_ok=False), SchemaError),
         (requests.Timeout(), TransientError),
+        (requests.exceptions.ChunkedEncodingError("<html>Jan Kowalski"), TransientError),
+        (requests.exceptions.ContentDecodingError("<html>Jan Kowalski"), TransientError),
     ],
 )
 def test_get_json_errors(response: FakeResponse | BaseException, expected: type[Exception]) -> None:
@@ -200,9 +205,15 @@ def test_device_cookie_is_sent_read_and_redacted() -> None:
     assert "urzadzenie0123456789abcdef" not in redact("DeviceCookie=urzadzenie0123456789abcdef")
 
 
-def test_non_json_login_answer_suggests_captcha() -> None:
-    import json
-
+@pytest.mark.parametrize(
+    "error",
+    [
+        json.JSONDecodeError("Expecting value", "<html>", 0),
+        # `response.json()` w `librus-apix`: błąd `requests`, ale nie błąd sieci
+        requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0),
+    ],
+)
+def test_non_json_login_answer_suggests_captcha(error: Exception) -> None:
     with pytest.raises(AuthError, match="captcha") as exc:
-        login(FakeClient(login_error=json.JSONDecodeError("Expecting value", "<html>", 0)))
+        login(FakeClient(login_error=error))
     assert exc.value.__cause__ is None

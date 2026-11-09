@@ -36,7 +36,10 @@ def deliver(alert: Alert, cfg: Config, today: date) -> bool:
         ok = send(alert, cfg, sender, today).sent > 0
     if bot is not None:
         call, chats = bot
-        ok = send_alert(alert, cfg, call, chats, today) > 0 or ok
+        try:
+            ok = send_alert(alert, cfg, call, chats, today) > 0 or ok
+        except Exception as e:
+            log.warning("Telegram nieudany (%s)", type(e).__name__)
     wa = whatsapp.graph_call(cfg)
     if wa is not None:
         try:

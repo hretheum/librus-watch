@@ -27,7 +27,14 @@ from librus_watch.errors import AuthError, ModuleUnavailable, SchemaError, Trans
 from librus_watch.secret_env import register_all
 
 API_URL = "https://synergia.librus.pl/gateway/api/2.0/"
-_NETWORK = (requests.Timeout, requests.ConnectionError)
+# błędy sieci, także zerwana albo ucięta odpowiedź. Bez `InvalidJSONError`, bo strona
+# zamiast JSON przy logowaniu to możliwa captcha (ADR-015).
+_NETWORK = (
+    requests.Timeout,
+    requests.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
+)
 log = logging.getLogger(__name__)
 
 

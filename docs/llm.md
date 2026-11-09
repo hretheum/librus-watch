@@ -109,7 +109,7 @@ Zła odpowiedź (nie JSON, zły schemat) dostaje **jedną** próbę naprawy: to 
 
 - **Model niedostępny** (limit czasu, błąd połączenia, 5xx): przerwa w odpytywaniu do końca cyklu (bezpiecznik po kilku kolejnych błędach), teksty zostają w kolejce. Odstępstwa wyliczane przez program i powiadomienia działają dalej.
 - Po `alerts.failure.llm_hours` godzinach bez udanej ekstrakcji, przy niepustej kolejce: raport o awarii.
-- Klasy błędów jak przy Librusie (ADR-011): przejściowe ponawiamy z limitem, zła odpowiedź to walidacja i naprawa, odmowa dostępu (401/403) to błąd konfiguracji.
+- Klasy błędów jak przy Librusie (ADR-011): przejściowe ponawiamy z limitem, zła odpowiedź to walidacja i naprawa, odmowa dostępu albo nieznany model (401, 403, 404) to błąd konfiguracji: ostrzeżenie z kodem w logu, a teksty zostają w kolejce jak przy niedostępnym modelu.
 
 ## Obserwowalność
 

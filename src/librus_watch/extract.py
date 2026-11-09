@@ -171,7 +171,7 @@ class BadAnswer(ValueError):
 
 
 class ModelUnavailable(RuntimeError):
-    """Model niedostępny: limit czasu, błąd połączenia, 5xx, 429."""
+    """Model niedostępny: limit czasu, błąd połączenia, 5xx, 429, 401, 403, 404."""
 
 
 class ChatClient(Protocol):
@@ -205,8 +205,10 @@ class OpenAIChat:
         """Wysyła zapytanie z wymuszeniem JSON według trybu.
 
         Raises:
-            ModelUnavailable: Limit czasu, błąd połączenia, 429 albo 5xx.
-            BadAnswer: Serwer odrzucił zapytanie (np. nieobsługiwany tryb JSON).
+            ModelUnavailable: Limit czasu, błąd połączenia, 429, 5xx albo 401, 403, 404
+                (zły klucz API albo nazwa modelu, tekst nie traci wtedy próby).
+            BadAnswer: Serwer odrzucił zapytanie innym kodem 4xx (np. 400 przy
+                nieobsługiwanym trybie JSON, na czym polega sonda).
         """
         import openai
 
@@ -229,9 +231,11 @@ class OpenAIChat:
         except (openai.APITimeoutError, openai.APIConnectionError, openai.RateLimitError) as e:
             raise ModelUnavailable(type(e).__name__) from None
         except openai.APIStatusError as e:
-            if e.status_code >= 500:
-                raise ModelUnavailable(f"HTTP {e.status_code}") from None
-            raise BadAnswer(f"HTTP {e.status_code}") from None
+            if e.status_code in (401, 403, 404):  # zły klucz albo model: tekst zachowuje próbę
+                log.warning("model: HTTP %d, sprawdź klucz API i nazwę modelu", e.status_code)
+            elif e.status_code < 500:
+                raise BadAnswer(f"HTTP {e.status_code}") from None
+            raise ModelUnavailable(f"HTTP {e.status_code}") from None
         content = response.choices[0].message.content or ""
         tokens = response.usage.total_tokens if response.usage else 0
         return content, tokens
